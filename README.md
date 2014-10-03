@@ -7,4 +7,4 @@ Thanks to mzDB and D language, extraction is much faster (20 fold) than the same
 ### Compilation
 Compilation with dmd
 
-  dmd -O -inline -release -noboundscheck extractor.d model.d
+  `dmd -O -inline -release -noboundscheck extractor.d model.d`
