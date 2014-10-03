@@ -1,5 +1,6 @@
 module model;
-pragma(lib, "lib/sqlite3");
+
+pragma(lib, "sqlite3");
 
 import std.stdio;
 import std.conv;

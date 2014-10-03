@@ -12,8 +12,10 @@ import std.conv;
 
 import model;
 
+/++
+ + Mass trace class 
+ +/
 class MassTrace {
-	double mz;
 	Peak apexPeak;
 	DList!Peak peaks;
 	size_t size;
@@ -23,36 +25,38 @@ class MassTrace {
 		apexPeak=null;
 	}
 
-	nothrow void append(Peak p) {
+
+	nothrow void setApexPeak(ref Peak p) {
+		apexPeak = p;
+		++size;
+	}
+
+	nothrow void append(ref Peak p) {
 		peaks.insertFront(p);
 		++size;
 	}
 
-	nothrow void appendLeft(Peak p) {
+	nothrow void appendLeft(ref Peak p) {
 		peaks.insertBack(p);
 		++size;
 	}
 
-	nothrow size_t length() {
-		return size;
-	}
 }
 
+/++
+ + 
+ +/
 class PeakIndex {
 	static double BIN_SIZE = 0.25;
 	static double INV_BIN_SIZE = 4;
 
-	//Peak[] peaks;
 	Peak[][int] index; 
 	double minMz;
 	double maxMz;
 
-	this() { //Peak[] peaks_) {
-		//peaks = peaks_;
-		minMz = 60;
-		maxMz = 895;
-
-		//update(peaks_);
+	this() { 
+		minMz = 60.0;
+		maxMz = 895.0;
 	}
 
 	int empty() {
@@ -107,6 +111,9 @@ class PeakIndex {
 	}
 }
 
+/++
+ +
+ +/
 class MassTraceExtractor {
 	double mzTolPPM;
 	int gapAllowed;
@@ -135,49 +142,73 @@ class MassTraceExtractor {
     		float rt = sqlite3_column_double(stmt, 1);
     		rtByScanId[id] = rt;
     	}
-    	writeln("length rtByScanId:", rtByScanId.length);
+    	writefln("length rtByScanId: %d", rtByScanId.length);
     	sqlite3_finalize(stmt);
     	sqlite3_close(db);
 	}
 
-	void extract(out MassTrace[] massTraces) {
-		auto rsIt = new test.RunSliceIterator(filename, 1);
 
-		Peak[] allPeaks;
-		//allPeaks.reserve(10000000);
-		PeakIndex[int] peaksIdxByScanId;
+	void update(ref ScanSlice[] currSs, 
+				ref PeakIndex[int] peaksIdxByScanId, 
+				ref Peak[] allPeaks) {
 		
-		foreach(int scanId; scanIds)
-			peaksIdxByScanId[scanId] = new PeakIndex();
-		
-
-		auto currTuple = rsIt.next();
-		test.RSHeader currRsh = currTuple[0];
-		test.ScanSlice[] currSs = currTuple[1];
-
-		test.RSHeader prevRsh = null;
-		test.ScanSlice[] prevSs;
-
-		test.RSHeader nextRsh = null;
-		test.ScanSlice[] nextSs;
-
-		foreach(ref test.ScanSlice s; currSs) {
+		foreach(ref ScanSlice s; currSs) {
 			auto peaks = s.toPeaks(rtByScanId);
 			peaksIdxByScanId[s.scanId].update(peaks);
 			allPeaks ~= peaks;
 		}
+	}
 
+	/++
+	 + main function called here
+	 +/
+	void extract(out MassTrace[] massTraces) {
+		auto rsIt = new RunSliceIterator(filename, 1);
+
+		/// maybe could reserve this one ?
+		///allPeaks.reserve(10000000);
+		Peak[] allPeaks;
+		
+		/// setting peak index for each scanID
+		PeakIndex[int] peaksIdxByScanId;
+		foreach(ref int scanId; scanIds)
+			peaksIdxByScanId[scanId] = new PeakIndex();
+		
+		/// first iteration setting to currRunSlice
+		auto currTuple = rsIt.next();
+		RSHeader currRsh = currTuple[0];
+		ScanSlice[] currSs = currTuple[1];
+
+		/// updating peaksByScanID and allpeaks
+		//foreach(ref ScanSlice s; currSs) {
+		//	auto peaks = s.toPeaks(rtByScanId);
+		//	peaksIdxByScanId[s.scanId].update(peaks);
+		//	allPeaks ~= peaks;
+		//}
+		update(currSs, peaksIdxByScanId, allPeaks);
+
+		/// setting next runslice as we are iterating on a slide window
+		RSHeader prevRsh = null;
+		ScanSlice[] prevSs;
+
+		RSHeader nextRsh = null;
+		ScanSlice[] nextSs;
+
+		/// hashmap mimic set python datastucture
 		int[Peak] alreadyUsedPeaks;
 
+		/// starting main while loop
 		while (rsIt.hasNext()) {
+
+			/// fetch next
 			auto nextTuple = rsIt.next();
 			nextSs = nextTuple[1];
 			nextRsh = nextTuple[0];
 
 			writeln("Processing runslice #", nextRsh.id);
 
-			foreach(ref test.ScanSlice s; nextSs)
-				allPeaks ~= s.toPeaks(rtByScanId);
+			update(nextSs, peaksIdxByScanId, allPeaks);
+
 
 			Peak[] notSeenYet = allPeaks.filter!(x=> x !in alreadyUsedPeaks)
 										.array
@@ -190,7 +221,7 @@ class MassTraceExtractor {
 					continue;
 			
 				MassTrace massTrace = new MassTrace();
-				massTrace.apexPeak = peak;
+				massTrace.setApexPeak(peak);
 				alreadyUsedPeaks[peak] = 0;
 				
 				auto scanId = peak.scanId;
@@ -261,7 +292,8 @@ class MassTraceExtractor {
 						break;
 					}
 				}
-				if (massTrace.length() > 2)
+		
+				if (massTrace.size > 5)
 					massTraces ~= massTrace;
 			}
 
@@ -277,6 +309,7 @@ class MassTraceExtractor {
 				}
 			}
 
+			/// Updating stuffs
 			prevRsh = currRsh;
 			prevSs = currSs;
 
@@ -289,12 +322,13 @@ class MassTraceExtractor {
 }
 
 void main() {
-	auto file = "C:\\Users\\Marco\\Desktop\\X20140626_006DP_pos_122.raw.mzdb";
-	auto rsIt = new test.RunSliceIterator(file, 1);
+	auto file = "D:\\Utilisateurs\\Marc\\Desktop\\developpement\\082DBB.raw.mzDB";
+	auto rsIt = new RunSliceIterator(file, 1);
 
 	auto currentTime = Clock.currTime();
 	MassTrace[] massTraces;
 	MassTraceExtractor mtd = new MassTraceExtractor(file, 15.0, 1);
 	mtd.extract(massTraces);
+	writeln("mass traces extracted:", massTraces.length);
 	writeln("elapsed time:", Clock.currTime() - currentTime);
 }
